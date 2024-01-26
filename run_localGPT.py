@@ -10,6 +10,7 @@ from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler 
 from langchain.callbacks.manager import CallbackManager
 import json
 import time
+import queue
 
 callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
 
@@ -184,6 +185,36 @@ def print_sources_to_console(docs):
     print("----------------------------------SOURCE DOCUMENTS---------------------------")
 
 
+def read_json_and_enqueue(input_file, queue):
+    try:
+        with open(input_file, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            for entry in data:
+                if entry.get("class", "") == "Course Policy/Format":
+                    text = entry.get("text", "").strip()
+                    if not text:
+                        continue
+                    queue_item = {"text": text, "timestamp": time.time()}
+                    queue.put(queue_item)
+    except FileNotFoundError:
+        logging.error(f"File {input_file} not found.")
+    except json.JSONDecodeError:
+        logging.error(f"File {input_file} is not a valid JSON file.")
+    return
+
+
+def process_from_queue(qa, queue, show_sources):
+    while not queue.empty():
+        queue_item = queue.get()
+        text = queue_item["text"]
+        queued_time = queue_item["timestamp"]
+        time_in_queue = time.time() - queued_time
+        res = process_query(qa, text)
+        print_output(res, text, show_sources)
+        utils.log_to_csv(text, res["answer"], res["docs"], res["response_time"], time_in_queue)
+        queue.task_done()
+
+
 # chose device typ to run on as well as to show source documents.
 @click.command()
 @click.option(
@@ -282,39 +313,25 @@ def main(device_type, show_sources, use_history, model_type, save_qa, input_file
     qa = retrieval_qa_pipline(device_type, use_history, promptTemplate_type=model_type)
 
     if input_file:
-        try:
-            with open(input_file, "r", encoding="utf-8") as file:
-                data = json.load(file)
-                for entry in data:
-                    if entry.get("class", "") == "Course Policy/Format":
-                        text = entry.get("text", "").strip()
-                        if not text:
-                            continue
-
-                        res = process_query(qa, text)
-                        print_output(res, text, show_sources)
-
-                        if save_qa:
-                            utils.log_to_csv(text, res["answer"], res["docs"], res["response_time"])
-        except FileNotFoundError:
-            logging.error(f"File {input_file} not found.")
-        except json.JSONDecodeError:
-            logging.error(f"File {input_file} is not a valid JSON file.")
+        entry_queue = queue.Queue()
+        read_json_and_enqueue(input_file, entry_queue)
+        process_from_queue(qa, entry_queue, show_sources)
         return
     # Interactive questions and answers
-    while True:
-        query = input("\nEnter a query: ")
-        if query == "exit":
-            break
+    else:
+        while True:
+            query = input("\nEnter a query: ")
+            if query == "exit":
+                break
 
-        res = process_query(qa, query)
+            res = process_query(qa, query)
 
-        print_output(res, query, show_sources)
+            print_output(res, query, show_sources)
 
-        if save_qa:
-            # this will probably crash right now because we don't have the docs and response time
-            # i'll probably change this to pass in the files but not use them
-            utils.log_to_csv(query, res["answer"])
+            if save_qa:
+                # this will probably crash right now because we don't have the docs and response time
+                # i'll probably change this to pass in the files but not use them
+                utils.log_to_csv(query, res["answer"])
 
 
 if __name__ == "__main__":
