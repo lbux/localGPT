@@ -8,6 +8,8 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.llms import HuggingFacePipeline
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler  # for streaming response
 from langchain.callbacks.manager import CallbackManager
+import json
+import time
 
 callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
 
@@ -158,9 +160,12 @@ def retrieval_qa_pipline(device_type, use_history, promptTemplate_type="llama"):
 
 
 def process_query(qa, query):
+    start_time_response = time.time()
     res = qa(query)
     answer, docs = res["result"], res["source_documents"]
-    return {"answer": answer, "docs": docs}
+    end_time_response = time.time()
+    response_time = end_time_response - start_time_response
+    return {"answer": answer, "docs": docs, "response_time": response_time}
 
 
 def print_output(res, query, show_sources):
@@ -268,6 +273,7 @@ def main(device_type, show_sources, use_history, model_type, save_qa, input_file
     if input_file and not save_qa:
         logging.info("Automatically setting save_qa to True since input_file is set.")
         save_qa = True
+        show_sources = True
 
     # check if models directory do not exist, create a new one and store models here.
     if not os.path.exists(MODELS_PATH):
@@ -277,18 +283,22 @@ def main(device_type, show_sources, use_history, model_type, save_qa, input_file
 
     if input_file:
         try:
-            with open(input_file, "r") as file:
-                for query in file:
-                    query = query.strip()
-                    if not query:
+            with open(input_file, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                for entry in data:
+                    text = entry.get("text", "").strip()
+                    if not text:
                         continue
-                    res = process_query(qa, query)
-                    print_output(res, query, show_sources)
+
+                    res = process_query(qa, text)
+                    print_output(res, text, show_sources)
 
                     if save_qa:
-                        utils.log_to_csv(query, res["answer"])
+                        utils.log_to_csv(text, res["answer"], res["docs"], res["response_time"])
         except FileNotFoundError:
             logging.error(f"File {input_file} not found.")
+        except json.JSONDecodeError:
+            logging.error(f"File {input_file} is not a valid JSON file.")
         return
     # Interactive questions and answers
     while True:
@@ -301,6 +311,8 @@ def main(device_type, show_sources, use_history, model_type, save_qa, input_file
         print_output(res, query, show_sources)
 
         if save_qa:
+            # this will probably crash right now because we don't have the docs and response time
+            # i'll probably change this to pass in the files but not use them
             utils.log_to_csv(query, res["answer"])
 
 

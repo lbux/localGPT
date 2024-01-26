@@ -170,3 +170,5 @@ SOURCE_DOCUMENTS/.DS_Store
 
 # Input file
 *.txt
+*.json
+*.pdf
