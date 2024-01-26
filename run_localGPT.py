@@ -286,15 +286,16 @@ def main(device_type, show_sources, use_history, model_type, save_qa, input_file
             with open(input_file, "r", encoding="utf-8") as file:
                 data = json.load(file)
                 for entry in data:
-                    text = entry.get("text", "").strip()
-                    if not text:
-                        continue
+                    if entry.get("class", "") == "Course Policy/Format":
+                        text = entry.get("text", "").strip()
+                        if not text:
+                            continue
 
-                    res = process_query(qa, text)
-                    print_output(res, text, show_sources)
+                        res = process_query(qa, text)
+                        print_output(res, text, show_sources)
 
-                    if save_qa:
-                        utils.log_to_csv(text, res["answer"], res["docs"], res["response_time"])
+                        if save_qa:
+                            utils.log_to_csv(text, res["answer"], res["docs"], res["response_time"])
         except FileNotFoundError:
             logging.error(f"File {input_file} not found.")
         except json.JSONDecodeError:
